@@ -572,7 +572,7 @@ private fun SettingsSheet(
             }
 
             Spacer(Modifier.height(22.dp))
-            SectionLabel("Sensibilité micro (imam éloigné) — ${"%.1f".format(micGain)}×")
+            SectionLabel("Sensibilité micro (imam éloigné) — boost jusqu'à ${(micGain * 10).toInt()}×")
             Slider(
                 value = micGain,
                 onValueChange = onMicGain,

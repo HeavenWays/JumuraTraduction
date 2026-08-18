@@ -36,9 +36,12 @@ class Config(context: Context) {
         get() = prefs.getString(KEY_LANG, "") ?: ""
         set(v) { prefs.edit().putString(KEY_LANG, v).apply() }
 
-    /** Gain micro logiciel (1.0 = brut). Monté par défaut pour capter l'imam au loin. */
+    /**
+     * Sensibilité micro (1..5) → boost maximal de normalisation 10×..50× appliqué pour
+     * remonter la voix lointaine de l'imam. Monté par défaut (imam éloigné).
+     */
     var micGain: Float
-        get() = prefs.getFloat(KEY_GAIN, 1.8f)
+        get() = prefs.getFloat(KEY_GAIN, 2.5f)
         set(v) { prefs.edit().putFloat(KEY_GAIN, v).apply() }
 
     /** Afficher le texte original (arabe/français) au-dessus de la traduction. */

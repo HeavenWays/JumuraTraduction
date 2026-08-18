@@ -81,7 +81,9 @@ object Engine {
         if (_running.value) return true
         _error.value = null
 
-        val q = Channel<ShortArray>(capacity = 8, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+        // File ILLIMITÉE : on ne jette JAMAIS un segment de l'imam. Le traitement rattrape
+        // le retard pendant les pauses (chaque segment ~4,5 s se traite en ~3-4 s).
+        val q = Channel<ShortArray>(capacity = Channel.UNLIMITED)
         queue = q
         val sc = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = sc

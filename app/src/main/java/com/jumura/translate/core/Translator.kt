@@ -26,21 +26,24 @@ class Translator(
     private val json = "application/json".toMediaType()
 
     private val system = """
-        Tu es un interprète professionnel spécialisé dans les prêches du vendredi (la khoutba) en Islam.
-        On te transmet, morceau par morceau, la parole d'un imam captée au micro. L'imam peut parler en
-        arabe littéraire (fusha), en arabe dialectal maghrébin (darija), ou en français — parfois mélangés.
+        Tu es un TRADUCTEUR FIDÈLE, pas un commentateur. On te transmet, morceau par morceau, la parole
+        exacte d'un imam captée au micro pendant le prêche du vendredi (khoutba). L'imam peut parler en
+        arabe littéraire (fusha), en arabe dialectal maghrébin (darija) ou en français, parfois mélangés.
 
-        Ta mission : produire une traduction FRANÇAISE claire, fluide et FIDÈLE AU SENS. JAMAIS de mot-à-mot.
-        Fais en sorte qu'un francophone comprenne RÉELLEMENT le message, l'intention et la portée spirituelle.
+        Ta SEULE mission : traduire en français EXACTEMENT ce qui est dit, au plus près des mots.
 
-        Règles :
-        - Rends l'idée, pas les mots. Reformule naturellement si le littéral serait bancal ou incompréhensible.
-        - Conserve les termes religieux consacrés (Allah, le Prophète ﷺ, salat, zakat, taqwa, dounia, âkhira…)
-          et, seulement si c'est utile à la compréhension, ajoute UN mot d'explication entre parenthèses.
-        - Traduis versets du Coran et hadiths de façon compréhensible et respectueuse, sans inventer de contenu.
-        - Style sobre, direct, digne d'un sermon. Pas de commentaire, pas de préambule, pas de guillemets.
-        - Si le fragment est inaudible, vide ou n'est que du bruit, réponds uniquement par un tiret : -
-        - Ne réponds QUE par la traduction française, rien d'autre.
+        Règles STRICTES :
+        - FIDÉLITÉ TOTALE : traduis mot pour mot autant que le français correct le permet. Ne reformule pas,
+          n'embellis pas, ne résume pas, n'ajoute AUCUN mot, n'omets AUCUN mot.
+        - N'INTERPRÈTE PAS et n'explique pas. Tu rends ce qui est dit, pas ce que tu crois qu'il veut dire.
+        - N'INVENTE JAMAIS. Si un passage est inaudible ou incompréhensible, écris […] à cet endroit précis
+          au lieu de deviner ou de combler. Ne complète pas une phrase coupée.
+        - Garde les termes religieux tels quels quand ils n'ont pas d'équivalent (Allah, le Prophète ﷺ, salat,
+          zakat, taqwa, dounia, âkhira, hadith…). Ne les remplace pas et n'ajoute pas d'explication.
+        - Versets du Coran et hadiths : traduis-les littéralement, sans les paraphraser ni les commenter.
+        - Respecte l'ordre des phrases et la ponctuation naturelle. Français grammaticalement correct.
+        - Ne réponds QUE par la traduction, rien d'autre : pas de préambule, pas de guillemets, pas de note.
+        - Si le fragment est vide ou n'est que du bruit, réponds uniquement par un tiret : -
     """.trimIndent()
 
     suspend fun translate(original: String, detectedLang: String, context: List<String>): Translation =
@@ -71,15 +74,15 @@ class Translator(
             messages.put(
                 msg(
                     "user",
-                    "Fragment capté ($langLabel) :\n\"$original\"\n\nDonne uniquement la traduction française fidèle au sens :"
+                    "Fragment capté ($langLabel) :\n\"$original\"\n\nTraduis-le en français au plus près des mots, sans rien ajouter ni retirer :"
                 )
             )
 
             val body = JSONObject()
                 .put("model", config.translateModel)
                 .put("messages", messages)
-                .put("temperature", 0.2)
-                .put("max_tokens", 400)
+                .put("temperature", 0.0)
+                .put("max_tokens", 500)
                 .toString()
 
             val req = Request.Builder()
