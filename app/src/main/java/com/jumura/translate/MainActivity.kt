@@ -468,7 +468,7 @@ private fun MicControls(
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, top = 2.dp)
+                        .padding(start = 24.dp, end = 24.dp, top = 2.dp)
                 )
             }
             Spacer(Modifier.height(10.dp))
