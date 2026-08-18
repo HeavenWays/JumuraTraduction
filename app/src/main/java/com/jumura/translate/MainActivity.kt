@@ -73,6 +73,8 @@ private fun JumuraScreen() {
     val lines by Engine.lines.collectAsStateWithLifecycle()
     val running by Engine.running.collectAsStateWithLifecycle()
     val status by Engine.status.collectAsStateWithLifecycle()
+    val debug by Engine.debug.collectAsStateWithLifecycle()
+    val engineError by Engine.error.collectAsStateWithLifecycle()
     val levelRaw by Engine.level.collectAsStateWithLifecycle()
     val level by animateFloatAsState(targetValue = levelRaw, label = "level")
 
@@ -143,6 +145,7 @@ private fun JumuraScreen() {
                 running = running,
                 level = level,
                 status = status,
+                debug = debug,
                 canClear = lines.isNotEmpty(),
                 onToggle = { toggle() },
                 onClear = { Engine.clear() }
@@ -171,6 +174,23 @@ private fun JumuraScreen() {
 
             if (!hasKey) {
                 KeyWarning(onOpen = { showSettings = true })
+            }
+
+            engineError?.let { err ->
+                Surface(
+                    color = Color(0xFF3A1414),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        "⚠︎ $err",
+                        color = JumuraRed,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
             }
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -422,6 +442,7 @@ private fun MicControls(
     running: Boolean,
     level: Float,
     status: String,
+    debug: String,
     canClear: Boolean,
     onToggle: () -> Unit,
     onClear: () -> Unit
@@ -439,6 +460,17 @@ private fun MicControls(
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
             )
+            if (debug.isNotBlank()) {
+                Text(
+                    debug,
+                    color = JumuraMuted,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, top = 2.dp)
+                )
+            }
             Spacer(Modifier.height(10.dp))
             Box(contentAlignment = Alignment.Center, modifier = Modifier.height(120.dp).fillMaxWidth()) {
                 // Halo réactif au niveau sonore

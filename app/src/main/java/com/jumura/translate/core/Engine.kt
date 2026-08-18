@@ -64,6 +64,13 @@ object Engine {
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
+    // Ligne de diagnostic visible à l'écran : dit exactement où en est le pipeline
+    // (combien de segments captés, combien transcrits, dernier texte ou erreur).
+    private val _debug = MutableStateFlow("")
+    val debug = _debug.asStateFlow()
+    private var received = 0
+    private var transcribed = 0
+
     private val ids = AtomicLong(0)
     private var scope: CoroutineScope? = null
     private var queue: Channel<ShortArray>? = null
@@ -80,6 +87,9 @@ object Engine {
     fun start(): Boolean {
         if (_running.value) return true
         _error.value = null
+        received = 0
+        transcribed = 0
+        _debug.value = "Micro ouvert, en attente de parole…"
 
         // File ILLIMITÉE : on ne jette JAMAIS un segment de l'imam. Le traitement rattrape
         // le retard pendant les pauses (chaque segment ~4,5 s se traite en ~3-4 s).
@@ -132,19 +142,26 @@ object Engine {
     }
 
     private suspend fun process(seg: ShortArray) {
+        received++
+        val secs = "%.1f".format(seg.size / 16000f)
+        _debug.value = "capté: $received (${secs}s) · transcrits: $transcribed"
         _status.value = "Transcription…"
         val wav = WavUtil.pcm16ToWav(seg)
         val t = transcriber.transcribe(wav)
 
         if (!t.ok) {
             _error.value = t.text
+            _debug.value = "capté: $received · ⚠ transcription: ${t.text}"
             _status.value = "Erreur : ${t.text}"
             return
         }
         if (t.text.isBlank() || t.text == "-") {
+            _debug.value = "capté: $received · transcrits: $transcribed · (segment vide/silence)"
             _status.value = "À l'écoute…"
             return
         }
+        transcribed++
+        _debug.value = "capté: $received · transcrits: $transcribed · « ${t.text.take(50)} »"
 
         // Publie la ligne originale immédiatement (retour visuel rapide), traduction en cours.
         val id = ids.incrementAndGet()

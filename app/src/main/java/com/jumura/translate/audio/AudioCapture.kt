@@ -44,10 +44,12 @@ class AudioCapture(
         if (minBuf <= 0) return false
         val bufSize = maxOf(minBuf, sampleRate * 2) // ~2 s de marge → aucune perte (overrun)
 
-        // MIC en priorité (le plus « brut » et fiable pour du champ lointain), puis replis.
+        // VOICE_RECOGNITION en priorité : c'est la source qui délivrait bien de l'audio en v1
+        // (surtout sur Samsung, où le MIC brut sort à un niveau trop bas). On garde MIC/DEFAULT
+        // en repli. Le vrai gain vient de la suppression du portillon + la normalisation forte.
         val sources = intArrayOf(
-            MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.DEFAULT
         )
         var ar: AudioRecord? = null
@@ -164,6 +166,8 @@ class AudioCapture(
 
     companion object {
         private const val TARGET_RMS = 0.16        // niveau cible après normalisation
-        private const val SILENCE_RMS = 0.0025     // sous ce seuil, le segment est du silence
+        // Seuil TRÈS permissif : on préfère envoyer un segment un peu faible (Whisper renverra
+        // du vide si ce n'est que du bruit) plutôt que de risquer de jeter la voix de l'imam.
+        private const val SILENCE_RMS = 0.0008
     }
 }
