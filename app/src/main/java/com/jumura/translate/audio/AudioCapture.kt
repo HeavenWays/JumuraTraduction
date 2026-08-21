@@ -69,7 +69,7 @@ class AudioCapture(
         val frameSize = 480                        // 30 ms
         val frame = ShortArray(frameSize)
 
-        val maxSamples = sampleRate * 15           // tampon max 15 s
+        val maxSamples = sampleRate * 22           // tampon max 22 s
         val buffer = ShortArray(maxSamples)
         var len = 0
 
@@ -77,10 +77,13 @@ class AudioCapture(
         var quietMs = 0                            // durée de silence continu en cours
         var accMs: Int
 
-        val targetMs = 5000                        // longueur visée d'un segment
-        val maxMs = 13000                          // clôture forcée (parole continue)
-        val minMs = 900                            // en-deçà : trop court, on ignore
-        val pauseMs = 450                          // silence continu requis pour couper « proprement »
+        // On ne coupe QUE sur une vraie fin de phrase : au moins ~2,5 s de parole SUIVIE d'un
+        // silence soutenu ~0,9 s (une simple respiration ne coupe plus). Clôture forcée à 20 s
+        // seulement si l'imam parle sans jamais s'arrêter → on ne tranche presque jamais un mot.
+        val minPhraseMs = 2500                     // contenu minimal avant une coupe « sur pause »
+        val maxMs = 20000                          // clôture forcée (parole continue)
+        val minMs = 700                            // en-deçà : trop court, on ignore
+        val pauseMs = 900                          // silence continu requis = fin de phrase
 
         while (running) {
             val n = record?.read(frame, 0, frameSize) ?: break
@@ -103,7 +106,7 @@ class AudioCapture(
             val quiet = rms < floor * 2.5f
             quietMs = if (quiet) quietMs + (n * 1000 / sampleRate) else 0
 
-            val cutOnPause = accMs >= targetMs && quietMs >= pauseMs
+            val cutOnPause = accMs >= minPhraseMs && quietMs >= pauseMs
             val cutForced = accMs >= maxMs || len >= maxSamples
             if (cutOnPause || cutForced) {
                 if (accMs >= minMs) flush(buffer, len)

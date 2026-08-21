@@ -26,11 +26,6 @@ class Transcriber(
 ) {
     private val endpoint = "https://api.groq.com/openai/v1/audio/transcriptions"
 
-    // Amorce (prompt Whisper) en arabe : cadre le modèle sur une khoutba. Volontairement COURTE :
-    // une amorce trop longue pousserait Whisper à recracher ces mots sur du silence.
-    private val arabicPrimer =
-        "خطبة الجمعة في المسجد. الحمد لله والصلاة والسلام على رسول الله. اتقوا الله عباد الله."
-
     suspend fun transcribe(wav: ByteArray): Transcript = withContext(Dispatchers.IO) {
         val key = config.groqKey
         if (!key.startsWith("gsk_")) {
@@ -45,7 +40,8 @@ class Transcriber(
             .addFormDataPart("file", "audio.wav", wav.toRequestBody("audio/wav".toMediaType()))
             .addFormDataPart("response_format", "verbose_json")
             .addFormDataPart("temperature", "0")
-            .addFormDataPart("prompt", if (lang == "fr") "Prêche du vendredi à la mosquée." else arabicPrimer)
+            // PAS d'amorce/prompt : Whisper recrache le texte du prompt sur un son peu net
+            // (c'était la cause du « Craignez Allah, serviteurs d'Allah » jamais prononcé).
 
         if (lang.isNotBlank()) builder.addFormDataPart("language", lang)
 
