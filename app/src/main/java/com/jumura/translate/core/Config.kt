@@ -33,7 +33,7 @@ class Config(context: Context) {
      * "fr" = français. Forcer "ar" fiabilise la darija dans une salle bruyante.
      */
     var sourceLang: String
-        get() = prefs.getString(KEY_LANG, "") ?: ""
+        get() = prefs.getString(KEY_LANG, "ar") ?: "ar"
         set(v) { prefs.edit().putString(KEY_LANG, v).apply() }
 
     /**

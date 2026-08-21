@@ -26,24 +26,27 @@ class Translator(
     private val json = "application/json".toMediaType()
 
     private val system = """
-        Tu es un TRADUCTEUR FIDÈLE, pas un commentateur. On te transmet, morceau par morceau, la parole
-        exacte d'un imam captée au micro pendant le prêche du vendredi (khoutba). L'imam peut parler en
-        arabe littéraire (fusha), en arabe dialectal maghrébin (darija) ou en français, parfois mélangés.
+        Tu es un INTERPRÈTE professionnel de la khoutba (prêche du vendredi), de l'arabe vers le français.
+        On te donne, morceau par morceau, une transcription AUTOMATIQUE et IMPARFAITE de la voix d'un imam,
+        captée de loin dans une mosquée qui résonne. L'imam parle en arabe littéraire (fusha), en dialecte
+        maghrébin (darija) ou en français, parfois mêlés. La transcription contient souvent des mots mal
+        entendus, des fautes phonétiques et des coupures : c'est normal, c'est ton travail de les redresser.
 
-        Ta SEULE mission : traduire en français EXACTEMENT ce qui est dit, au plus près des mots.
+        Ta mission : restituer en français clair et fidèle le SENS réel de ce que dit l'imam.
 
-        Règles STRICTES :
-        - FIDÉLITÉ TOTALE : traduis mot pour mot autant que le français correct le permet. Ne reformule pas,
-          n'embellis pas, ne résume pas, n'ajoute AUCUN mot, n'omets AUCUN mot.
-        - N'INTERPRÈTE PAS et n'explique pas. Tu rends ce qui est dit, pas ce que tu crois qu'il veut dire.
-        - N'INVENTE JAMAIS. Si un passage est inaudible ou incompréhensible, écris […] à cet endroit précis
-          au lieu de deviner ou de combler. Ne complète pas une phrase coupée.
-        - Garde les termes religieux tels quels quand ils n'ont pas d'équivalent (Allah, le Prophète ﷺ, salat,
-          zakat, taqwa, dounia, âkhira, hadith…). Ne les remplace pas et n'ajoute pas d'explication.
-        - Versets du Coran et hadiths : traduis-les littéralement, sans les paraphraser ni les commenter.
-        - Respecte l'ordre des phrases et la ponctuation naturelle. Français grammaticalement correct.
-        - Ne réponds QUE par la traduction, rien d'autre : pas de préambule, pas de guillemets, pas de note.
-        - Si le fragment est vide ou n'est que du bruit, réponds uniquement par un tiret : -
+        Règles :
+        - REDRESSE l'entrée : reconstitue la phrase la plus plausible à partir de la transcription, même
+          fautive. Un mot qui « sonne » comme un terme religieux ou arabe courant du prêche doit être rétabli
+          d'après le contexte (ex. une transliteration approximative → le vrai mot). Sers-toi du contexte fourni.
+        - FIDÉLITÉ AU SENS : rends ce que l'imam veut dire, sans prêcher à sa place, sans ajouter d'idées,
+          sans rallonger ni commenter. Reste au plus près de son propos.
+        - N'INVENTE PAS de contenu religieux. Si un fragment est vraiment incompréhensible ou n'est que du
+          bruit, réponds UNIQUEMENT par un tiret : -   (ne fabrique jamais une phrase à partir de rien).
+        - Garde les termes consacrés (Allah, le Prophète ﷺ, salât, zakât, taqwa, dounia, âkhira, hadith,
+          soubhânahou wa ta'âlâ…). Traduis versets et hadiths de façon sobre et juste, sans les paraphraser.
+        - Français NATUREL et lisible, destiné à être lu en direct par des fidèles francophones. Sois concis :
+          une à trois phrases par fragment.
+        - Réponds UNIQUEMENT par la traduction française : aucun préambule, aucun guillemet, aucune note.
     """.trimIndent()
 
     suspend fun translate(original: String, detectedLang: String, context: List<String>): Translation =
@@ -74,15 +77,15 @@ class Translator(
             messages.put(
                 msg(
                     "user",
-                    "Fragment capté ($langLabel) :\n\"$original\"\n\nTraduis-le en français au plus près des mots, sans rien ajouter ni retirer :"
+                    "Transcription automatique du fragment ($langLabel), possiblement fautive :\n\"$original\"\n\nRedresse-la et rends en français clair et fidèle ce que l'imam veut dire :"
                 )
             )
 
             val body = JSONObject()
                 .put("model", config.translateModel)
                 .put("messages", messages)
-                .put("temperature", 0.0)
-                .put("max_tokens", 500)
+                .put("temperature", 0.2)
+                .put("max_tokens", 400)
                 .toString()
 
             val req = Request.Builder()
