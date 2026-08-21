@@ -147,8 +147,9 @@ class AudioCapture(
         val rms = sqrt(sum / len) / 32768.0
         if (rms < SILENCE_RMS) return              // silence/bruit résiduel → on n'envoie pas
 
-        // Boost MODÉRÉ pour remonter la voix lointaine sans gonfler le bruit (≈ ×5..12).
-        val maxGain = 3f + gainProvider().coerceIn(1f, 5f) * 1.8f
+        // Boost pour remonter la voix LOINTAINE de l'imam (≈ ×7..19 selon la sensibilité).
+        // Le filtre anti-hallucination en aval rejette le « merci/شكرا » que ce gain peut induire.
+        val maxGain = 4f + gainProvider().coerceIn(1f, 5f) * 3f
         var gain = (TARGET_RMS / rms).toFloat()
         if (gain < 1f) gain = 1f
         if (gain > maxGain) gain = maxGain
@@ -186,7 +187,7 @@ class AudioCapture(
     }
 
     companion object {
-        private const val TARGET_RMS = 0.12        // niveau cible après normalisation (modéré)
+        private const val TARGET_RMS = 0.16        // niveau cible après normalisation (voix lointaine remontée fort)
         // Seuil permissif mais mesuré APRÈS passe-haut (le grondement ne compte plus) : on jette
         // le vrai silence/bruit résiduel sans risquer la voix faible de l'imam.
         private const val SILENCE_RMS = 0.0015

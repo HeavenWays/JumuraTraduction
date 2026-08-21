@@ -41,7 +41,7 @@ class Config(context: Context) {
      * remonter la voix lointaine de l'imam. Monté par défaut (imam éloigné).
      */
     var micGain: Float
-        get() = prefs.getFloat(KEY_GAIN, 2.5f)
+        get() = prefs.getFloat(KEY_GAIN, 4.0f)
         set(v) { prefs.edit().putFloat(KEY_GAIN, v).apply() }
 
     /** Afficher le texte original (arabe/français) au-dessus de la traduction. */
