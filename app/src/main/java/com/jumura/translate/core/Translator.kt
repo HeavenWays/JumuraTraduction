@@ -13,10 +13,14 @@ import org.json.JSONObject
 data class Translation(val ok: Boolean, val text: String)
 
 /**
- * Traduction INTELLIGENTE vers le français via Groq (LLM).
- * Objectif : rendre le SENS réel de ce que dit l'imam (arabe littéraire, darija maghrébine
- * ou français), jamais du mot-à-mot. On fournit au modèle un petit contexte des dernières
- * phrases déjà traduites pour garder la cohérence du discours.
+ * Traduction vers le français via Groq (LLM), en mode INTERPRÈTE : on redresse la transcription
+ * automatique (souvent fautive) et on rend le SENS réel de ce que dit l'imam.
+ *
+ * Frugalité en tokens (quota gratuit = 200 000 tokens/jour) : prompt système COMPACT, contexte
+ * réduit, sortie plafonnée. Un khoutba entier tient ainsi largement dans le budget du jour.
+ *
+ * Robustesse : si le modèle choisi est à court de quota (rate limit), on RÉESSAIE automatiquement
+ * avec un modèle de repli (même famille, quota journalier séparé) pour ne pas bloquer la traduction.
  */
 class Translator(
     private val config: Config,
@@ -25,28 +29,15 @@ class Translator(
     private val endpoint = "https://api.groq.com/openai/v1/chat/completions"
     private val json = "application/json".toMediaType()
 
+    // Prompt système volontairement COURT (renvoyé à chaque phrase → coûte des tokens à chaque appel).
     private val system = """
-        Tu es un INTERPRÈTE professionnel de la khoutba (prêche du vendredi), de l'arabe vers le français.
-        On te donne, morceau par morceau, une transcription AUTOMATIQUE et IMPARFAITE de la voix d'un imam,
-        captée de loin dans une mosquée qui résonne. L'imam parle en arabe littéraire (fusha), en dialecte
-        maghrébin (darija) ou en français, parfois mêlés. La transcription contient souvent des mots mal
-        entendus, des fautes phonétiques et des coupures : c'est normal, c'est ton travail de les redresser.
-
-        Ta mission : restituer en français clair et fidèle le SENS réel de ce que dit l'imam.
-
-        Règles :
-        - REDRESSE l'entrée : reconstitue la phrase la plus plausible à partir de la transcription, même
-          fautive. Un mot qui « sonne » comme un terme religieux ou arabe courant du prêche doit être rétabli
-          d'après le contexte (ex. une transliteration approximative → le vrai mot). Sers-toi du contexte fourni.
-        - FIDÉLITÉ AU SENS : rends ce que l'imam veut dire, sans prêcher à sa place, sans ajouter d'idées,
-          sans rallonger ni commenter. Reste au plus près de son propos.
-        - N'INVENTE PAS de contenu religieux. Si un fragment est vraiment incompréhensible ou n'est que du
-          bruit, réponds UNIQUEMENT par un tiret : -   (ne fabrique jamais une phrase à partir de rien).
-        - Garde les termes consacrés (Allah, le Prophète ﷺ, salât, zakât, taqwa, dounia, âkhira, hadith,
-          soubhânahou wa ta'âlâ…). Traduis versets et hadiths de façon sobre et juste, sans les paraphraser.
-        - Français NATUREL et lisible, destiné à être lu en direct par des fidèles francophones. Sois concis :
-          une à trois phrases par fragment.
-        - Réponds UNIQUEMENT par la traduction française : aucun préambule, aucun guillemet, aucune note.
+        Tu es un interprète de la khoutba (prêche du vendredi), de l'arabe vers le français.
+        On te donne une transcription automatique IMPARFAITE de la voix de l'imam (arabe littéraire,
+        darija maghrébine ou français, souvent mal transcrits). Redresse-la et rends en français clair
+        et FIDÈLE le sens réel de ce qu'il dit : ne rallonge pas, n'ajoute pas d'idées, ne commente pas.
+        Garde les termes religieux (Allah, le Prophète ﷺ, salât, zakât, taqwa, dounia, âkhira, hadith…).
+        Si le fragment est incompréhensible ou n'est que du bruit, réponds seulement : -
+        Réponds UNIQUEMENT par la traduction française, rien d'autre.
     """.trimIndent()
 
     suspend fun translate(original: String, detectedLang: String, context: List<String>): Translation =
@@ -58,58 +49,66 @@ class Translator(
             val messages = JSONArray()
             messages.put(msg("system", system))
 
+            // Contexte réduit : 2 dernières phrases, tronquées (continuité sans exploser les tokens).
             if (context.isNotEmpty()) {
-                val recap = context.takeLast(3).joinToString(" ")
-                messages.put(
-                    msg(
-                        "system",
-                        "Contexte déjà traduit (pour la continuité, ne le retraduis pas) : $recap"
-                    )
-                )
+                val recap = context.takeLast(2).joinToString(" ") { it.take(140) }
+                if (recap.isNotBlank()) {
+                    messages.put(msg("system", "Contexte précédent (ne pas retraduire) : $recap"))
+                }
             }
 
             val langLabel = when (detectedLang.lowercase()) {
-                "ar", "arabic" -> "arabe (littéraire ou darija)"
+                "ar", "arabic" -> "arabe/darija"
                 "fr", "french" -> "français"
-                "" -> "langue à déterminer"
-                else -> detectedLang
+                else -> "à déterminer"
             }
             messages.put(
-                msg(
-                    "user",
-                    "Transcription automatique du fragment ($langLabel), possiblement fautive :\n\"$original\"\n\nRedresse-la et rends en français clair et fidèle ce que l'imam veut dire :"
-                )
+                msg("user", "Transcription ($langLabel), possiblement fautive :\n\"$original\"\n\nRends le sens en français :")
             )
 
-            val body = JSONObject()
-                .put("model", config.translateModel)
-                .put("messages", messages)
-                .put("temperature", 0.2)
-                .put("max_tokens", 400)
-                .toString()
-
-            val req = Request.Builder()
-                .url(endpoint)
-                .header("Authorization", "Bearer $key")
-                .post(body.toRequestBody(json))
-                .build()
-
-            try {
-                client.newCall(req).execute().use { resp ->
-                    val raw = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) {
-                        val msg = extractError(raw) ?: "Erreur traduction (code ${resp.code})"
-                        return@withContext Translation(false, msg)
-                    }
-                    val content = JSONObject(raw)
-                        .optJSONArray("choices")?.optJSONObject(0)
-                        ?.optJSONObject("message")?.optString("content").orEmpty().trim()
-                    Translation(true, content.ifBlank { "-" })
-                }
-            } catch (e: Exception) {
-                Translation(false, "Réseau indisponible pour la traduction.")
+            // Modèle choisi ; repli automatique si le quota du jour est atteint.
+            val primary = config.translateModel
+            var res = call(primary, messages, key)
+            if (res.rateLimited && !primary.equals(FALLBACK_MODEL, ignoreCase = true)) {
+                res = call(FALLBACK_MODEL, messages, key)
             }
+            res.translation
         }
+
+    private data class Result(val translation: Translation, val rateLimited: Boolean)
+
+    private fun call(model: String, messages: JSONArray, key: String): Result {
+        val body = JSONObject()
+            .put("model", model)
+            .put("messages", messages)
+            .put("temperature", 0.2)
+            .put("max_tokens", 256)
+            .toString()
+
+        val req = Request.Builder()
+            .url(endpoint)
+            .header("Authorization", "Bearer $key")
+            .post(body.toRequestBody(json))
+            .build()
+
+        return try {
+            client.newCall(req).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    val msg = extractError(raw) ?: "Erreur traduction (code ${resp.code})"
+                    val rl = resp.code == 429 || raw.contains("rate_limit", true) ||
+                        msg.contains("rate limit", true)
+                    return Result(Translation(false, msg), rl)
+                }
+                val content = JSONObject(raw)
+                    .optJSONArray("choices")?.optJSONObject(0)
+                    ?.optJSONObject("message")?.optString("content").orEmpty().trim()
+                Result(Translation(true, content.ifBlank { "-" }), false)
+            }
+        } catch (e: Exception) {
+            Result(Translation(false, "Réseau indisponible pour la traduction."), false)
+        }
+    }
 
     private fun msg(role: String, content: String): JSONObject =
         JSONObject().put("role", role).put("content", content)
@@ -117,4 +116,10 @@ class Translator(
     private fun extractError(raw: String): String? = try {
         JSONObject(raw).optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
     } catch (_: Exception) { null }
+
+    companion object {
+        // Repli quand le modèle principal a épuisé son quota du jour : même famille (gpt-oss),
+        // quota journalier séparé et plus large → la traduction continue de fonctionner.
+        const val FALLBACK_MODEL = "openai/gpt-oss-20b"
+    }
 }
