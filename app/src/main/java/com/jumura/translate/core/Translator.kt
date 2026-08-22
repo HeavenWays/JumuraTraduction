@@ -16,11 +16,11 @@ data class Translation(val ok: Boolean, val text: String)
  * Traduction vers le français via Groq (LLM), en mode INTERPRÈTE : on redresse la transcription
  * automatique (souvent fautive) et on rend le SENS réel de ce que dit l'imam.
  *
- * Frugalité en tokens (quota gratuit = 200 000 tokens/jour) : prompt système COMPACT, contexte
- * réduit, sortie plafonnée. Un khoutba entier tient ainsi largement dans le budget du jour.
+ * Frugalité en tokens (quota gratuit = 200 000 tokens/jour PAR MODÈLE) : prompt système COMPACT,
+ * contexte réduit, sortie plafonnée.
  *
- * Robustesse : si le modèle choisi est à court de quota (rate limit), on RÉESSAIE automatiquement
- * avec un modèle de repli (même famille, quota journalier séparé) pour ne pas bloquer la traduction.
+ * Robustesse : si un modèle est à court de quota (rate limit) ou indisponible, on ESSAIE les suivants
+ * d'une chaîne de repli (chacun a son propre quota journalier) → la traduction ne s'arrête jamais.
  */
 class Translator(
     private val config: Config,
@@ -29,14 +29,15 @@ class Translator(
     private val endpoint = "https://api.groq.com/openai/v1/chat/completions"
     private val json = "application/json".toMediaType()
 
-    // Prompt système volontairement COURT (renvoyé à chaque phrase → coûte des tokens à chaque appel).
+    // Prompt système COURT (renvoyé à chaque phrase → coûte des tokens à chaque appel).
     private val system = """
         Tu es un interprète de la khoutba (prêche du vendredi), de l'arabe vers le français.
         On te donne une transcription automatique IMPARFAITE de la voix de l'imam (arabe littéraire,
         darija maghrébine ou français, souvent mal transcrits). Redresse-la et rends en français clair
         et FIDÈLE le sens réel de ce qu'il dit : ne rallonge pas, n'ajoute pas d'idées, ne commente pas.
         Garde les termes religieux (Allah, le Prophète ﷺ, salât, zakât, taqwa, dounia, âkhira, hadith…).
-        Si le fragment est incompréhensible ou n'est que du bruit, réponds seulement : -
+        Donne TOUJOURS ta meilleure traduction, même si la transcription est approximative.
+        Ne réponds « - » QUE si le fragment est réellement vide ou n'est que du bruit sans aucun mot.
         Réponds UNIQUEMENT par la traduction française, rien d'autre.
     """.trimIndent()
 
@@ -66,16 +67,22 @@ class Translator(
                 msg("user", "Transcription ($langLabel), possiblement fautive :\n\"$original\"\n\nRends le sens en français :")
             )
 
-            // Modèle choisi ; repli automatique si le quota du jour est atteint.
-            val primary = config.translateModel
-            var res = call(primary, messages, key)
-            if (res.rateLimited && !primary.equals(FALLBACK_MODEL, ignoreCase = true)) {
-                res = call(FALLBACK_MODEL, messages, key)
+            // Modèle choisi puis chaîne de repli (quotas journaliers séparés).
+            val models = buildList {
+                add(config.translateModel)
+                for (m in FALLBACK_CHAIN) if (none { it.equals(m, ignoreCase = true) }) add(m)
             }
-            res.translation
+            var last: Result? = null
+            for (model in models) {
+                val r = call(model, messages, key)
+                if (r.translation.ok) return@withContext r.translation
+                last = r
+                if (!r.retryable) break        // erreur non liée au quota/modèle → inutile d'insister
+            }
+            last?.translation ?: Translation(false, "Traduction indisponible")
         }
 
-    private data class Result(val translation: Translation, val rateLimited: Boolean)
+    private data class Result(val translation: Translation, val retryable: Boolean)
 
     private fun call(model: String, messages: JSONArray, key: String): Result {
         val body = JSONObject()
@@ -96,9 +103,11 @@ class Translator(
                 val raw = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     val msg = extractError(raw) ?: "Erreur traduction (code ${resp.code})"
-                    val rl = resp.code == 429 || raw.contains("rate_limit", true) ||
-                        msg.contains("rate limit", true)
-                    return Result(Translation(false, msg), rl)
+                    // Quota atteint (429), modèle invalide/retiré (400/404) ou service indispo (503)
+                    // → on tente le modèle suivant de la chaîne.
+                    val retry = resp.code in intArrayOf(429, 400, 404, 503) ||
+                        raw.contains("rate_limit", true)
+                    return Result(Translation(false, msg), retry)
                 }
                 val content = JSONObject(raw)
                     .optJSONArray("choices")?.optJSONObject(0)
@@ -118,8 +127,8 @@ class Translator(
     } catch (_: Exception) { null }
 
     companion object {
-        // Repli quand le modèle principal a épuisé son quota du jour : même famille (gpt-oss),
-        // quota journalier séparé et plus large → la traduction continue de fonctionner.
-        const val FALLBACK_MODEL = "openai/gpt-oss-20b"
+        // Repli quand le modèle principal a épuisé son quota du jour ou est indisponible.
+        // Ordre = qualité décroissante ; le dernier (8b) a un très grand quota gratuit → filet de sécurité.
+        val FALLBACK_CHAIN = listOf("openai/gpt-oss-20b", "llama-3.1-8b-instant")
     }
 }

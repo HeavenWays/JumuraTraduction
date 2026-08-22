@@ -91,8 +91,9 @@ class Transcriber(
         if (n == 0) return false
         val avgNoSpeech = noSpeech / n
         val avgLogprob = logprob / n
-        // Beaucoup de « pas de parole » OU log-prob très bas = bruit/silence/charabia.
-        return avgNoSpeech > 0.8 || avgLogprob < -1.2
+        // Seuils PRUDENTS pour ne pas jeter la voix lointaine (souvent peu sûre) : on n'écarte que
+        // le silence quasi-certain OU un charabia franc. Le tri fin se fait au niveau du texte.
+        return avgNoSpeech > 0.9 || avgLogprob < -1.6
     }
 
     /** Détecte les hallucinations de Whisper : fillers sur silence, crédits, répétitions en boucle. */

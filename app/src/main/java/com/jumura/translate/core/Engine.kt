@@ -42,10 +42,11 @@ object Engine {
     private lateinit var transcriber: Transcriber
     private lateinit var translator: Translator
 
+    // Timeouts COURTS : en direct, un appel qui traîne ne doit jamais bloquer la file séquentielle.
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .callTimeout(90, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(40, TimeUnit.SECONDS)
         .build()
 
     // --- État observable ---
@@ -70,6 +71,7 @@ object Engine {
     val debug = _debug.asStateFlow()
     private var received = 0
     private var transcribed = 0
+    private var lastOriginalNorm = ""      // dernière transcription publiée (anti-doublon Whisper)
 
     private val ids = AtomicLong(0)
     private var scope: CoroutineScope? = null
@@ -89,6 +91,7 @@ object Engine {
         _error.value = null
         received = 0
         transcribed = 0
+        lastOriginalNorm = ""
         _debug.value = "Micro ouvert, en attente de parole…"
 
         // File ILLIMITÉE : on ne jette JAMAIS un segment de l'imam. Le traitement rattrape
@@ -160,6 +163,14 @@ object Engine {
             _status.value = "À l'écoute…"
             return
         }
+        // Anti-doublon : Whisper répète parfois la même phrase sur des segments successifs.
+        val norm = t.text.lowercase().replace(Regex("\\s+"), " ").trim()
+        if (norm == lastOriginalNorm) {
+            _debug.value = "capté: $received · (doublon ignoré)"
+            _status.value = if (_running.value) "À l'écoute…" else "En pause"
+            return
+        }
+        lastOriginalNorm = norm
         transcribed++
         _debug.value = "capté: $received · transcrits: $transcribed · « ${t.text.take(50)} »"
 

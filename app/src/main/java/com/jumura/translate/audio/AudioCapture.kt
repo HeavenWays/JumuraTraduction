@@ -69,7 +69,7 @@ class AudioCapture(
         val frameSize = 480                        // 30 ms
         val frame = ShortArray(frameSize)
 
-        val maxSamples = sampleRate * 22           // tampon max 22 s
+        val maxSamples = sampleRate * 14           // tampon max 14 s
         val buffer = ShortArray(maxSamples)
         var len = 0
 
@@ -77,13 +77,17 @@ class AudioCapture(
         var quietMs = 0                            // durée de silence continu en cours
         var accMs: Int
 
-        // On ne coupe QUE sur une vraie fin de phrase : au moins ~2,5 s de parole SUIVIE d'un
-        // silence soutenu ~0,9 s (une simple respiration ne coupe plus). Clôture forcée à 20 s
-        // seulement si l'imam parle sans jamais s'arrêter → on ne tranche presque jamais un mot.
-        val minPhraseMs = 2500                     // contenu minimal avant une coupe « sur pause »
-        val maxMs = 20000                          // clôture forcée (parole continue)
-        val minMs = 700                            // en-deçà : trop court, on ignore
-        val pauseMs = 900                          // silence continu requis = fin de phrase
+        // Découpage GRADUÉ pour que la parole longue soit tronçonnée régulièrement (jamais de segment
+        // géant qui bloque la traduction) SANS couper au milieu d'une phrase courte :
+        //  - coupe NETTE : ≥2,5 s de parole + vraie pause de fin de phrase (~0,85 s).
+        //  - coupe DOUCE : si déjà ≥7 s de parole continue, une petite pause (~0,35 s) suffit.
+        //  - coupe FORCÉE : à 12 s, même sans pause (parole ininterrompue).
+        val minPhraseMs = 2500                     // contenu minimal avant une coupe « nette »
+        val pauseMs = 850                          // silence = fin de phrase (coupe nette)
+        val softCutMs = 7000                       // au-delà : on accepte une petite pause pour couper
+        val softPauseMs = 350                      // petite pause suffisante quand le segment est déjà long
+        val maxMs = 12000                          // clôture forcée (parole continue)
+        val minMs = 600                            // en-deçà : trop court, on ignore
 
         while (running) {
             val n = record?.read(frame, 0, frameSize) ?: break
@@ -106,9 +110,10 @@ class AudioCapture(
             val quiet = rms < floor * 2.5f
             quietMs = if (quiet) quietMs + (n * 1000 / sampleRate) else 0
 
-            val cutOnPause = accMs >= minPhraseMs && quietMs >= pauseMs
+            val cleanCut = accMs >= minPhraseMs && quietMs >= pauseMs
+            val softCut = accMs >= softCutMs && quietMs >= softPauseMs
             val cutForced = accMs >= maxMs || len >= maxSamples
-            if (cutOnPause || cutForced) {
+            if (cleanCut || softCut || cutForced) {
                 if (accMs >= minMs) flush(buffer, len)
                 len = 0
                 quietMs = 0
