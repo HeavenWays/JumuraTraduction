@@ -85,17 +85,23 @@ class Translator(
     private data class Result(val translation: Translation, val retryable: Boolean)
 
     private fun call(model: String, messages: JSONArray, key: String): Result {
-        val body = JSONObject()
+        // Les modèles gpt-oss RAISONNENT avant de répondre, et ces tokens de réflexion sont
+        // décomptés du budget de sortie. Avec un budget trop bas, tout part dans le raisonnement
+        // et `content` revient VIDE (finish_reason = "length") → la traduction n'arrivait jamais.
+        // Donc : effort de raisonnement minimal + budget large pour ces modèles.
+        val isReasoning = model.contains("gpt-oss", ignoreCase = true)
+
+        val payload = JSONObject()
             .put("model", model)
             .put("messages", messages)
             .put("temperature", 0.2)
-            .put("max_tokens", 256)
-            .toString()
+            .put("max_tokens", if (isReasoning) 1024 else 300)
+        if (isReasoning) payload.put("reasoning_effort", "low")
 
         val req = Request.Builder()
             .url(endpoint)
             .header("Authorization", "Bearer $key")
-            .post(body.toRequestBody(json))
+            .post(payload.toString().toRequestBody(json))
             .build()
 
         return try {
@@ -109,15 +115,34 @@ class Translator(
                         raw.contains("rate_limit", true)
                     return Result(Translation(false, msg), retry)
                 }
-                val content = JSONObject(raw)
-                    .optJSONArray("choices")?.optJSONObject(0)
-                    ?.optJSONObject("message")?.optString("content").orEmpty().trim()
-                Result(Translation(true, content.ifBlank { "-" }), false)
+
+                val choice = JSONObject(raw).optJSONArray("choices")?.optJSONObject(0)
+                val finish = choice?.optString("finish_reason").orEmpty()
+                val content = clean(choice?.optJSONObject("message")?.optString("content").orEmpty())
+
+                // Réponse vide malgré un HTTP 200 : ne JAMAIS la faire passer pour une traduction.
+                // On bascule sur le modèle suivant (le dernier de la chaîne ne raisonne pas).
+                if (content.isBlank()) {
+                    val why = if (finish == "length")
+                        "Réponse coupée par le modèle (budget épuisé)."
+                    else
+                        "Le modèle a renvoyé une réponse vide."
+                    return Result(Translation(false, why), true)
+                }
+
+                Result(Translation(true, content), false)
             }
         } catch (e: Exception) {
             Result(Translation(false, "Réseau indisponible pour la traduction."), false)
         }
     }
+
+    /** Retire un éventuel bloc de raisonnement ou les jetons de contrôle du modèle. */
+    private fun clean(text: String): String =
+        text.replace(Regex("(?s)<think>.*?</think>"), " ")
+            .replace(Regex("<\\|[a-z_]+\\|>"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
 
     private fun msg(role: String, content: String): JSONObject =
         JSONObject().put("role", role).put("content", content)
